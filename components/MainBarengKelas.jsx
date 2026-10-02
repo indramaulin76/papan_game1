@@ -207,7 +207,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
       <section className="heading"><div><p className="eyebrow"><Sparkles size={14} /> BELAJAR BARENG, MAIN BARENG</p><h1>Ular Tangga <span>Belajar!</span></h1></div><div className="finish-pill"><Crown size={16} /> FINIS DI KOTAK {boardSize}</div></section>
       <section className="layout" aria-label="Permainan ular tangga">
         <div className="board-wrap"><div className="board-topline"><div className="turn-indicator"><span className={`avatar ${current?.color}`}>{current?.name[0]}</span><div><small>GILIRAN SEKARANG</small><strong>{winner ? `${winner.name} menang!` : `${current?.name} yang jalan`}</strong>{!winner && nextPlayer && <em className="next-turn-hint">Berikutnya: {nextPlayer.name}</em>}</div></div><div className="key"><span><ArrowUpRight size={15} /> Tangga</span><span><ArrowDownRight size={15} /> Ular</span></div></div>
-          <div className="board" role="grid" aria-label={`Papan permainan, kotak 1 sampai ${boardSize}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(46px, 1fr))` }}>{cells.map((number, cellIndex) => {
+          <div className="board" role="grid" aria-label={`Papan permainan, kotak 1 sampai ${boardSize}`} style={{ "--cols": String(cols), "--rows": String(rows), gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>{cells.map((number, cellIndex) => {
             if (number === null) return <div className="tile tile-empty" key={`empty-${cellIndex}`} aria-hidden="true" />;
             const occupants = players.filter((player) => player.position === number);
             const hasQuestion = Boolean(questionMap[number]);

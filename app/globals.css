@@ -168,3 +168,5 @@
 .add-player-button:hover{background:var(--green-dark)}
 .add-player-limit{margin:10px 0 0;color:#879087;font-size:10px;line-height:1.4;text-align:center}
 .next-turn-hint{display:block;margin-top:2px;color:#879087;font-size:9px;font-style:normal}
+.board{aspect-ratio:var(--cols, 8) / var(--rows, 8);max-width:calc((100vh - 300px) * var(--cols, 8) / var(--rows, 8));max-width:calc((100dvh - 300px) * var(--cols, 8) / var(--rows, 8));margin-left:auto;margin-right:auto}
+@media(max-width:640px){.board{max-width:calc((100vh - 232px) * var(--cols, 8) / var(--rows, 8));max-width:calc((100dvh - 232px) * var(--cols, 8) / var(--rows, 8))}}
