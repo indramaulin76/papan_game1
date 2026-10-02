@@ -1,0 +1,1 @@
+ALTER TABLE `game_sessions` ADD `current_player_id` text;

@@ -1,0 +1,54 @@
+{
+  "repo": "ulertangga",
+  "generatedForCommit": null,
+  "files": [
+    {
+      "path": ".gitignore",
+      "reason": "needs_summary",
+      "language": null,
+      "size": 50
+    },
+    {
+      "path": ".ngodingpakeaiignore",
+      "reason": "needs_summary",
+      "language": null,
+      "size": 269
+    },
+    {
+      "path": "AGENTS.md",
+      "reason": "needs_summary",
+      "language": "markdown",
+      "size": 18850
+    },
+    {
+      "path": "app/globals.css",
+      "reason": "changed",
+      "language": "css",
+      "size": 19512
+    },
+    {
+      "path": "app/layout.jsx",
+      "reason": "needs_summary",
+      "language": "javascript",
+      "size": 264
+    },
+    {
+      "path": "app/page.jsx",
+      "reason": "changed",
+      "language": "javascript",
+      "size": 18147
+    },
+    {
+      "path": "package-lock.json",
+      "reason": "needs_summary",
+      "language": "json",
+      "size": 33720
+    },
+    {
+      "path": "package.json",
+      "reason": "needs_summary",
+      "language": "json",
+      "size": 375
+    }
+  ]
+}
