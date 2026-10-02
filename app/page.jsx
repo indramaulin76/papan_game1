@@ -4,7 +4,7 @@ import { useState } from "react";
 import AturPermainan from "../components/AturPermainan";
 import MainBarengKelas from "../components/MainBarengKelas";
 import { PLAYER_COLORS } from "../lib/boardConfig";
-import { DEFAULT_TILE_QUESTIONS } from "../lib/questionBank";
+import { DEFAULT_TILE_QUESTIONS, QUESTION_BANK } from "../lib/questionBank";
 
 /** Buat daftar pemain dari nama & warna yang diisi di halaman pengaturan. */
 function buildPlayers(names, colors) {
@@ -26,15 +26,17 @@ export default function Home() {
   const [showSetup, setShowSetup] = useState(true);
   const [boardSize, setBoardSize] = useState(64);
   const [tileQuestions, setTileQuestions] = useState(DEFAULT_TILE_QUESTIONS);
+  const [questionPool, setQuestionPool] = useState(QUESTION_BANK);
   const [players, setPlayers] = useState([]);
 
-  function startGame({ names, colors, boardSize: size, tileQuestions: config }) {
+  function startGame({ names, colors, boardSize: size, tileQuestions: config, questionPool: pool }) {
     const sanitized = Object.fromEntries(
       Object.entries(config ?? DEFAULT_TILE_QUESTIONS).filter(([tileKey]) => Number(tileKey) <= size),
     );
     setPlayers(buildPlayers(names, colors));
     setBoardSize(size);
     setTileQuestions(sanitized);
+    setQuestionPool(Array.isArray(pool) && pool.length > 0 ? pool : QUESTION_BANK);
     setShowSetup(false);
   }
 
@@ -48,6 +50,7 @@ export default function Home() {
       setPlayers={setPlayers}
       boardSize={boardSize}
       tileQuestions={tileQuestions}
+      questionPool={questionPool}
       onExit={() => setShowSetup(true)}
     />
   );

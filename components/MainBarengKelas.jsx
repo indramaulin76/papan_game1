@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Crown, Dice5, Sparkles, UserPlus, Volume2, X } from "lucide-react";
 import { DEFAULT_LADDERS, DEFAULT_SNAKES, PLAYER_COLORS, COLOR_LABEL, buildBoard, filterLinks } from "../lib/boardConfig";
-import { QUESTION_BANK } from "../lib/questionBank";
+import { QUESTION_BANK, pickQuestionForTile } from "../lib/questionBank";
 
 const diceHistory = [
   { player: "Alya", value: 4, time: "10:30" },
@@ -19,12 +19,12 @@ const SCORE_CORRECT = 10;
  * kotak) datang dari halaman "Atur Permainan" lewat props; komponen ini
  * mengelola giliran, posisi pion, skor, dan kondisi menang.
  */
-export default function MainBarengKelas({ players, setPlayers, boardSize, tileQuestions, onExit }) {
+export default function MainBarengKelas({ players, setPlayers, boardSize, tileQuestions, questionPool = QUESTION_BANK, onExit }) {
   const [turn, setTurn] = useState(0);
   const [die, setDie] = useState(null);
   const [rolling, setRolling] = useState(false);
   const [moving, setMoving] = useState(false);
-  const [tile, setTile] = useState(null);
+  const [activeQuestion, setActiveQuestion] = useState(null);
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
   const [gameOver, setGameOver] = useState(false);
@@ -34,25 +34,34 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
   const [newColor, setNewColor] = useState(null);
   const [addError, setAddError] = useState("");
   const [lastLanding, setLastLanding] = useState(null);
+  const usedByTileRef = useRef({});
 
   const { cells, cols, rows } = useMemo(() => buildBoard(boardSize), [boardSize]);
   const activeLadders = useMemo(() => filterLinks(DEFAULT_LADDERS, boardSize), [boardSize]);
   const activeSnakes = useMemo(() => filterLinks(DEFAULT_SNAKES, boardSize), [boardSize]);
-  const questionMap = useMemo(() => {
-    const map = {};
-    for (const [tileKey, questionId] of Object.entries(tileQuestions ?? {})) {
-      const found = QUESTION_BANK.find((item) => item.id === questionId);
-      if (found) map[tileKey] = found;
-    }
-    return map;
-  }, [tileQuestions]);
   const current = players[turn];
   const nextPlayer = players[(turn + 1) % players.length];
   const winner = players.find((player) => player.position >= boardSize);
-  const question = tile ? questionMap[tile] ?? null : null;
+  const tile = activeQuestion?.tile ?? null;
+  const question = activeQuestion?.question ?? null;
   const usedColors = new Set(players.map((player) => player.color));
   const availableColors = PLAYER_COLORS.filter((color) => !usedColors.has(color));
   const previewColor = newColor ?? availableColors[0] ?? "coral";
+
+  /**
+   * Pilih soal acak untuk sebuah kotak: utamakan soal khusus (bila ada), hindari
+   * soal yang sudah pernah keluar di kotak itu, lalu reset bila bank sudah habis.
+   */
+  const openQuestionForTile = useCallback((tileNumber) => {
+    const pool = Array.isArray(questionPool) && questionPool.length > 0 ? questionPool : QUESTION_BANK;
+    const picked = pickQuestionForTile({
+      pool,
+      tileNumber,
+      pinnedId: tileQuestions?.[tileNumber],
+      usedMap: usedByTileRef.current,
+    });
+    if (picked) setActiveQuestion({ tile: tileNumber, question: picked });
+  }, [questionPool, tileQuestions]);
 
   /**
    * Akhiri giliran sekarang juga: tutup soal, bersihkan dadu, lalu pindah ke
@@ -60,10 +69,12 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
    */
   const advanceTurn = useCallback(() => {
     setDie(null);
-    setTile(null);
+    setActiveQuestion(null);
     setResult(null);
     setMessage("");
     setLastLanding(null);
+    setEssayAnswer("");
+    setEssayError("");
     setTurn((index) => (index + 1) % players.length);
   }, [players.length]);
 
@@ -75,11 +86,10 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
   useEffect(() => {
     if (winner || gameOver) return;
     if (rolling || moving || die === null) return;
-    const hasQuestion = lastLanding != null && Boolean(questionMap[lastLanding]);
-    if (hasQuestion && !result) return;
+    if (activeQuestion && !result) return;
     const timer = window.setTimeout(advanceTurn, result ? 1700 : 1100);
     return () => window.clearTimeout(timer);
-  }, [advanceTurn, die, rolling, moving, result, lastLanding, questionMap, winner, gameOver]);
+  }, [advanceTurn, die, rolling, moving, result, activeQuestion, winner, gameOver]);
 
   function addScore(playerIndex) {
     setPlayers((list) => list.map((player, index) => (index === playerIndex ? { ...player, score: player.score + SCORE_CORRECT } : player)));
@@ -111,7 +121,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
   function roll() {
     if (rolling || moving || die !== null || winner || gameOver) return;
     setRolling(true);
-    setTile(null);
+    setActiveQuestion(null);
     setResult(null);
     setMessage("");
     setLastLanding(null);
@@ -138,11 +148,13 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
                 setLastLanding(destination);
                 setMoving(false);
                 if (destination >= boardSize) setGameOver(true);
+                else openQuestionForTile(destination);
               }, 380);
             } else {
               setLastLanding(destination);
               setMoving(false);
               if (destination >= boardSize) setGameOver(true);
+              else openQuestionForTile(destination);
             }
           }
         }, (index + 1) * 200);
@@ -178,11 +190,12 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
     setPlayers((list) => list.map((player) => ({ ...player, position: 1, score: 0 })));
     setTurn(0);
     setDie(null);
-    setTile(null);
+    setActiveQuestion(null);
     setResult(null);
     setMessage("");
     setLastLanding(null);
     setGameOver(false);
+    usedByTileRef.current = {};
   }
 
   if (winner) {
@@ -210,18 +223,17 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
           <div className="board" role="grid" aria-label={`Papan permainan, kotak 1 sampai ${boardSize}`} style={{ "--cols": String(cols), "--rows": String(rows), gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>{cells.map((number, cellIndex) => {
             if (number === null) return <div className="tile tile-empty" key={`empty-${cellIndex}`} aria-hidden="true" />;
             const occupants = players.filter((player) => player.position === number);
-            const hasQuestion = Boolean(questionMap[number]);
-            const canOpen = hasQuestion && current.position === number;
+            const isActive = activeQuestion?.tile === number;
             const special = number === 1 ? " start-tile" : number === boardSize ? " finish-tile" : "";
             const hasPawn = occupants.length > 0;
-            return <button key={number} type="button" role="gridcell" aria-label={`Kotak ${number}${hasQuestion ? ", ada soal" : ""}${occupants.length ? `, pion ${occupants.map((player) => player.name).join(", ")}` : ""}`} className={`tile tone-${(number + Math.floor((number - 1) / cols)) % 4}${special}${canOpen ? " ready" : ""}${tile === number ? " selected" : ""}${hasPawn ? " has-pawn" : ""}`} onClick={() => { if (canOpen) { setTile(number); setResult(null); } }}>
+            return <button key={number} type="button" role="gridcell" aria-label={`Kotak ${number}${isActive ? ", sedang ada soal" : ""}${occupants.length ? `, pion ${occupants.map((player) => player.name).join(", ")}` : ""}`} className={`tile tone-${(number + Math.floor((number - 1) / cols)) % 4}${special}${isActive ? " ready" : ""}${hasPawn ? " has-pawn" : ""}`} onClick={() => { if (lastLanding === number && !activeQuestion && !result) openQuestionForTile(number); }}>
               <span className="tile-number">{number}</span>{number === 1 && <span className="start-label">MULAI</span>}{number === boardSize && <span className="finish-label"><Crown size={12} /> FINIS</span>}
               {activeLadders[number] && <span className="marker ladder"><ArrowUpRight size={16} /></span>}{activeSnakes[number] && <span className="marker snake"><ArrowDownRight size={16} /></span>}
-              {hasQuestion && <span className={`question-dot${canOpen ? " active" : ""}`} title="Klik untuk membuka soal"><CircleHelp size={12} /></span>}{occupants.length > 0 && <span className="pawns">{occupants.slice(0, 4).map((player) => <span className={`pawn ${player.color}${moving && player.name === current?.name ? " is-moving" : ""}`} key={`${player.name}-${player.color}`}>{player.name[0]}</span>)}{occupants.length > 4 && <span className="pawn pawn-more">+{occupants.length - 4}</span>}</span>}
+              {isActive && <span className="question-dot active" title="Soal sedang terbuka"><CircleHelp size={12} /></span>}{occupants.length > 0 && <span className="pawns">{occupants.slice(0, 4).map((player) => <span className={`pawn ${player.color}${moving && player.name === current?.name ? " is-moving" : ""}`} key={`${player.name}-${player.color}`}>{player.name[0]}</span>)}{occupants.length > 4 && <span className="pawn pawn-more">+{occupants.length - 4}</span>}</span>}
             </button>;
           })}</div><div className="board-footer"><span>✳ &nbsp;LEMPAR DADU, LANGKAHKAN PIONMU</span><span>{boardSize} PETAK</span></div></div>
         <aside className="sidebar">
-          <section className="dice-panel"><div className="panel-top"><span>LEMPAR DADU</span><b>{die ? `ANGKA ${die}` : "GILIRANMU"}</b></div><div className={`die${rolling ? " rolling" : ""}`} aria-live="polite">{die ?? <Dice5 size={58} />}</div><p className="hint">{rolling ? "Dadu sedang berputar..." : winner ? "Permainan selesai!" : message || `${current?.name}, siap melangkah?`}</p><button className="roll-button" onClick={roll} aria-label={`Lempar dadu untuk ${current?.name ?? "pemain"}`} disabled={rolling || moving || die !== null || Boolean(winner) || gameOver}><Dice5 size={19} /> {rolling ? "MENGOCOK..." : "LEMPAR DADU"} <ChevronRight size={17} /></button>{die !== null && !winner && !moving && !gameOver && lastLanding != null && Boolean(questionMap[lastLanding]) && !result && <button className="next-turn" onClick={advanceTurn}>Lewati giliran <ChevronRight size={15} /></button>}<div className="dice-history"><h3>Riwayat Lemparan</h3>{diceHistory.map((entry, index) => <div className="history-row" key={index}><span className={`avatar ${entry.player === "Alya" ? "coral" : entry.player === "Bima" ? "blue" : "green"}`}>{entry.player[0]}</span><span className="history-value">{entry.value}</span><span className="history-time">{entry.time}</span></div>)}</div></section>
+          <section className="dice-panel"><div className="panel-top"><span>LEMPAR DADU</span><b>{die ? `ANGKA ${die}` : "GILIRANMU"}</b></div><div className={`die${rolling ? " rolling" : ""}`} aria-live="polite">{die ?? <Dice5 size={58} />}</div><p className="hint">{rolling ? "Dadu sedang berputar..." : winner ? "Permainan selesai!" : message || `${current?.name}, siap melangkah?`}</p><button className="roll-button" onClick={roll} aria-label={`Lempar dadu untuk ${current?.name ?? "pemain"}`} disabled={rolling || moving || die !== null || Boolean(winner) || gameOver}><Dice5 size={19} /> {rolling ? "MENGOCOK..." : "LEMPAR DADU"} <ChevronRight size={17} /></button><div className="dice-history"><h3>Riwayat Lemparan</h3>{diceHistory.map((entry, index) => <div className="history-row" key={index}><span className={`avatar ${entry.player === "Alya" ? "coral" : entry.player === "Bima" ? "blue" : "green"}`}>{entry.player[0]}</span><span className="history-value">{entry.value}</span><span className="history-time">{entry.time}</span></div>)}</div></section>
           <section className="players-panel"><div className="section-heading"><h2>Pemain</h2><span>{players.length} anak</span></div>{players.map((player, index) => <div className={`player-row${index === turn ? " active" : ""}`} key={`${player.name}-${player.color}`}><span className={`avatar ${player.color}`} title={`${player.name} — pion ${COLOR_LABEL[player.color] ?? player.color}`} aria-label={`${player.name}, pion warna ${COLOR_LABEL[player.color] ?? player.color}`}>{player.name[0]}</span><div className="player-meta"><strong>{player.name}{index === turn && <small className="you-tag">JALAN</small>}</strong><span>Kotak {player.position} · pion {COLOR_LABEL[player.color] ?? player.color}</span></div><b className="score"><Sparkles size={12} /> {player.score}</b></div>)}
             {players.length < PLAYER_COLORS.length ? (
               <form className="add-player" onSubmit={addPlayer}>
@@ -254,7 +266,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
             ) : (
               <p className="add-player-limit">Maksimal {PLAYER_COLORS.length} pemain sudah tercapai.</p>
             )}</section>
-          {question ? <div className="modal-overlay" onClick={() => { setTile(null); setEssayAnswer(""); setEssayError(""); }}><div className={`question-modal${result ? ` ${result}` : ""}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={question.type === "essay" ? "Soal esai" : question.type === "oral" ? "Soal lisan" : "Soal pilihan ganda"}><div className="question-top"><span>{question.subject}</span><button onClick={() => { setTile(null); setEssayAnswer(""); setEssayError(""); }} aria-label="Tutup soal"><X size={16} /></button></div><small>SOAL PETAK {tile}</small><h2>{question.text}</h2>{question.type === "essay" ? <div className="essay-section"><textarea value={essayAnswer} onChange={(e) => setEssayAnswer(e.target.value)} placeholder="Tulis jawabanmu di sini..." disabled={Boolean(result)} />{essayError && <p className="essay-error">{essayError}</p>}{!result && <button className="submit-essay" onClick={submitEssay}>Jawab</button>}</div> : question.type === "oral" ? <div className="oral-section"><p className="oral-hint">Jawablah dengan suara, lalu guru menilai benar atau salah.</p>{!result && <div className="oral-buttons"><button className="oral-correct" onClick={() => judgeOral(true)}><Check size={16} /> Benar</button><button className="oral-incorrect" onClick={() => judgeOral(false)}><X size={16} /> Salah</button></div>}</div> : <div className="answers">{question.choices.map((choice, index) => <button key={choice} disabled={Boolean(result)} onClick={() => answer(index)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}</div>}{result && <p className="feedback">{result === "correct" ? <><Check size={16} /> Tepat sekali! +10 poin</> : "Belum tepat, coba lagi di soal berikutnya."}</p>}</div></div> : <section className="tip"><span><Sparkles size={17} /></span><p><strong>Petak penuh kejutan!</strong><br />Soal baru terbuka saat pionmu berhenti di sana.</p></section>}
+          {question ? <div className="modal-overlay" onClick={() => { setActiveQuestion(null); setEssayAnswer(""); setEssayError(""); }}><div className={`question-modal${result ? ` ${result}` : ""}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={question.type === "essay" ? "Soal esai" : question.type === "oral" ? "Soal lisan" : "Soal pilihan ganda"}><div className="question-top"><span>{question.subject}</span><button onClick={() => { setActiveQuestion(null); setEssayAnswer(""); setEssayError(""); }} aria-label="Tutup soal"><X size={16} /></button></div><small>SOAL PETAK {tile}</small><h2>{question.text}</h2>{question.type === "essay" ? <div className="essay-section"><textarea value={essayAnswer} onChange={(e) => setEssayAnswer(e.target.value)} placeholder="Tulis jawabanmu di sini..." disabled={Boolean(result)} />{essayError && <p className="essay-error">{essayError}</p>}{!result && <button className="submit-essay" onClick={submitEssay}>Jawab</button>}</div> : question.type === "oral" ? <div className="oral-section"><p className="oral-hint">Jawablah dengan suara, lalu guru menilai benar atau salah.</p>{!result && <div className="oral-buttons"><button className="oral-correct" onClick={() => judgeOral(true)}><Check size={16} /> Benar</button><button className="oral-incorrect" onClick={() => judgeOral(false)}><X size={16} /> Salah</button></div>}</div> : <div className="answers">{question.choices.map((choice, index) => <button key={choice} disabled={Boolean(result)} onClick={() => answer(index)}><b>{String.fromCharCode(65 + index)}</b>{choice}</button>)}</div>}{result && <p className="feedback">{result === "correct" ? <><Check size={16} /> Tepat sekali! +10 poin</> : "Belum tepat, coba lagi di soal berikutnya."}</p>}</div></div> : <section className="tip"><span><Sparkles size={17} /></span><p><strong>Petak penuh kejutan!</strong><br />Soal muncul otomatis saat pionmu berhenti di sana.</p></section>}
         </aside>
       </section><footer className="footer"><span>Dibuat untuk belajar yang lebih seru <b>♥</b></span><span>Guru bisa bantu kalau ada soal lisan</span></footer>
     </main>

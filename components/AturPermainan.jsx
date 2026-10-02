@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -9,12 +9,20 @@ import {
   Dice5,
   Flag,
   Play,
+  Plus,
   Sparkles,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
 import { DEFAULT_LADDERS, DEFAULT_SNAKES, PLAYER_COLORS, buildBoard, filterLinks } from "../lib/boardConfig";
-import { DEFAULT_TILE_QUESTIONS, QUESTION_BANK, QUESTION_TYPE_LABEL } from "../lib/questionBank";
+import {
+  DEFAULT_TILE_QUESTIONS,
+  QUESTION_BANK,
+  QUESTION_TYPE_LABEL,
+  loadCustomQuestions,
+  saveCustomQuestions,
+} from "../lib/questionBank";
 
 const BOARD_PRESETS = [25, 36, 49, 64, 81, 100];
 const MIN_TILES = 2;
@@ -57,6 +65,22 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
   const [selectedTile, setSelectedTile] = useState(1);
   const [typeFilter, setTypeFilter] = useState("all");
   const [error, setError] = useState("");
+  const [customQuestions, setCustomQuestions] = useState([]);
+  const [draft, setDraft] = useState({
+    subject: "",
+    type: "multiple_choice",
+    text: "",
+    choices: ["", "", "", ""],
+    correct: 0,
+  });
+  const [draftError, setDraftError] = useState("");
+
+  // Soal buatan guru dimuat setelah mount agar tidak bentrok saat SSR.
+  useEffect(() => {
+    setCustomQuestions(loadCustomQuestions());
+  }, []);
+
+  const questionBank = useMemo(() => [...QUESTION_BANK, ...customQuestions], [customQuestions]);
 
   const finishTile = customTile.trim() === "" ? boardSize : Number(customTile);
   const validFinish =
@@ -67,11 +91,11 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
   const previewSnakes = useMemo(() => filterLinks(DEFAULT_SNAKES, previewSize), [previewSize]);
 
   const selectedQuestionId = tileQuestions[selectedTile] ?? "";
-  const selectedQuestion = QUESTION_BANK.find((item) => item.id === selectedQuestionId) ?? null;
+  const selectedQuestion = questionBank.find((item) => item.id === selectedQuestionId) ?? null;
   const questionCount = Object.keys(tileQuestions).filter((tileKey) => Number(tileKey) <= previewSize).length;
   const visibleBank = useMemo(
-    () => QUESTION_BANK.filter((item) => typeFilter === "all" || item.type === typeFilter),
-    [typeFilter],
+    () => questionBank.filter((item) => typeFilter === "all" || item.type === typeFilter),
+    [questionBank, typeFilter],
   );
   const bankBySubject = useMemo(() => {
     const groups = {};
@@ -82,23 +106,21 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
     return groups;
   }, [visibleBank]);
   const typeCounts = useMemo(() => {
-    const counts = { all: QUESTION_BANK.length };
-    for (const item of QUESTION_BANK) counts[item.type] = (counts[item.type] ?? 0) + 1;
+    const counts = { all: questionBank.length };
+    for (const item of questionBank) counts[item.type] = (counts[item.type] ?? 0) + 1;
     return counts;
-  }, []);
-  const selectedHidden =
-    Boolean(selectedQuestion) && !visibleBank.some((item) => item.id === selectedQuestion.id);
-  const installedTypes = useMemo(() => {
+  }, [questionBank]);
+  const bankTypes = useMemo(() => {
     const counts = { multiple_choice: 0, essay: 0, oral: 0 };
-    for (const questionId of Object.values(tileQuestions)) {
-      const found = QUESTION_BANK.find((item) => item.id === questionId);
-      if (found && counts[found.type] !== undefined) counts[found.type] += 1;
+    for (const item of questionBank) {
+      if (counts[item.type] !== undefined) counts[item.type] += 1;
     }
     return counts;
-  }, [tileQuestions]);
+  }, [questionBank]);
+  const selectedHidden =
+    Boolean(selectedQuestion) && !visibleBank.some((item) => item.id === selectedQuestion.id);
   const problems = [];
   if (!validFinish) problems.push(`Jumlah kotak finis harus antara ${MIN_TILES} dan ${MAX_TILES}.`);
-  if (questionCount === 0) problems.push("Belum ada soal yang ditempelkan ke kotak papan.");
   const ready = problems.length === 0;
 
   function changeCount(count) {
@@ -140,10 +162,10 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
 
   function distributeQuestions() {
     const map = {};
-    const step = Math.max(1, Math.floor(previewSize / QUESTION_BANK.length));
+    const step = Math.max(1, Math.floor(previewSize / questionBank.length));
     let bankIndex = 0;
-    for (let number = 3; number < previewSize && bankIndex < QUESTION_BANK.length; number += step) {
-      map[number] = QUESTION_BANK[bankIndex].id;
+    for (let number = 3; number < previewSize && bankIndex < questionBank.length; number += step) {
+      map[number] = questionBank[bankIndex].id;
       bankIndex += 1;
     }
     setTileQuestions(map);
@@ -151,6 +173,68 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
 
   function clearQuestions() {
     setTileQuestions({});
+  }
+
+  function updateDraft(field, value) {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+    if (draftError) setDraftError("");
+  }
+
+  function updateChoice(index, value) {
+    setDraft((prev) => {
+      const choices = [...prev.choices];
+      choices[index] = value;
+      return { ...prev, choices };
+    });
+    if (draftError) setDraftError("");
+  }
+
+  /** Tambahkan soal buatan guru ke bank lokal (localStorage). */
+  function addCustomQuestion() {
+    const subject = draft.subject.trim();
+    const text = draft.text.trim();
+    if (!subject) {
+      setDraftError("Mata pelajaran belum diisi.");
+      return;
+    }
+    if (!text) {
+      setDraftError("Pertanyaan belum diisi.");
+      return;
+    }
+    const item = {
+      id: `custom-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      subject,
+      type: draft.type,
+      text,
+    };
+    if (draft.type === "multiple_choice") {
+      const choices = draft.choices.map((choice) => choice.trim());
+      if (choices.some((choice) => !choice)) {
+        setDraftError("Isi keempat pilihan jawaban dulu ya.");
+        return;
+      }
+      item.choices = choices;
+      item.correct = draft.correct;
+    }
+    const next = [...customQuestions, item];
+    setCustomQuestions(next);
+    saveCustomQuestions(next);
+    setDraft({ subject: "", type: "multiple_choice", text: "", choices: ["", "", "", ""], correct: 0 });
+    setDraftError("");
+  }
+
+  /** Hapus soal buatan guru dan lepaskan dari kotak yang memakainya. */
+  function removeCustomQuestion(id) {
+    const next = customQuestions.filter((item) => item.id !== id);
+    setCustomQuestions(next);
+    saveCustomQuestions(next);
+    setTileQuestions((prev) => {
+      const cleaned = { ...prev };
+      for (const [tileKey, questionId] of Object.entries(cleaned)) {
+        if (questionId === id) delete cleaned[tileKey];
+      }
+      return cleaned;
+    });
   }
 
   function choosePreset(preset) {
@@ -168,7 +252,13 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
     const sanitized = Object.fromEntries(
       Object.entries(tileQuestions).filter(([tileKey]) => Number(tileKey) <= finishTile),
     );
-    onStart({ names: names.slice(0, playerCount), colors: colors.slice(0, playerCount), boardSize: finishTile, tileQuestions: sanitized });
+    onStart({
+      names: names.slice(0, playerCount),
+      colors: colors.slice(0, playerCount),
+      boardSize: finishTile,
+      tileQuestions: sanitized,
+      questionPool: questionBank,
+    });
   }
 
   return (
@@ -377,11 +467,13 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
           <ul className="summary-list">
             <li><span>Pemain</span><b>{playerCount} anak</b></li>
             <li><span>Kotak finis</span><b>{validFinish ? finishTile : "—"}</b></li>
-            <li><span>Soal terpasang</span><b>{questionCount} kotak</b></li>
+            <li><span>Bank soal</span><b>{questionBank.length} soal</b></li>
+            <li><span>Soal khusus</span><b>{questionCount} kotak</b></li>
             <li>
               <span>Jenis soal</span>
-              <b>{installedTypes.multiple_choice} PG · {installedTypes.essay} esai · {installedTypes.oral} lisan</b>
+              <b>{bankTypes.multiple_choice} PG · {bankTypes.essay} esai · {bankTypes.oral} lisan</b>
             </li>
+            <li><span>Cara keluar soal</span><b>Acak per kotak</b></li>
             <li>
               <span>Tangga &amp; ular</span>
               <b>{Object.keys(previewLadders).length} &amp; {Object.keys(previewSnakes).length}</b>
@@ -408,7 +500,8 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
           <div>
             <h2>Soal per Kotak</h2>
             <p>
-              Klik kotak di papan lalu tempelkan soal. {questionCount} kotak sudah punya soal.
+              Tempelkan soal khusus ke kotak tertentu (opsional). Kotak lain otomatis
+              diberi soal acak dari bank. {questionCount} kotak punya soal khusus.
             </p>
           </div>
         </div>
@@ -528,11 +621,126 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
               </div>
             ) : (
               <p className="question-empty">
-                Kotak ini belum punya soal. Pilih soal dari daftar di atas untuk menempelkannya.
+                Belum ada soal khusus untuk kotak ini. Saat dimainkan, kotak ini tetap
+                mendapat soal acak dari bank.
               </p>
             )}
           </div>
         </div>
+      </section>
+
+      <section className="settings-card custom-section">
+        <div className="settings-card-head">
+          <span className="settings-icon">
+            <Plus size={18} />
+          </span>
+          <div>
+            <h2>Buat Soal Sendiri</h2>
+            <p>Soal buatanmu masuk ke bank dan ikut muncul acak saat bermain.</p>
+          </div>
+        </div>
+
+        <div className="custom-form">
+          <div className="custom-form-row">
+            <div className="form-group">
+              <label htmlFor="cq-subject">Mata pelajaran</label>
+              <input
+                id="cq-subject"
+                type="text"
+                placeholder="mis. Tajwid"
+                value={draft.subject}
+                onChange={(event) => updateDraft("subject", event.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="cq-type">Jenis soal</label>
+              <select
+                id="cq-type"
+                value={draft.type}
+                onChange={(event) => updateDraft("type", event.target.value)}
+              >
+                {TYPE_OPTIONS.filter((option) => option.value !== "all").map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="cq-text">Pertanyaan</label>
+            <textarea
+              id="cq-text"
+              rows={3}
+              placeholder="Tulis pertanyaan di sini..."
+              value={draft.text}
+              onChange={(event) => updateDraft("text", event.target.value)}
+            />
+          </div>
+
+          {draft.type === "multiple_choice" && (
+            <div className="form-group">
+              <label>Pilihan jawaban — klik huruf untuk menandai jawaban benar</label>
+              <div className="choice-list">
+                {draft.choices.map((choice, index) => {
+                  const letter = String.fromCharCode(65 + index);
+                  return (
+                    <div className={`choice-row${draft.correct === index ? " correct" : ""}`} key={letter}>
+                      <button
+                        type="button"
+                        className="choice-mark"
+                        aria-label={`Tandai pilihan ${letter} sebagai jawaban benar`}
+                        aria-pressed={draft.correct === index}
+                        onClick={() => updateDraft("correct", index)}
+                      >
+                        {letter}
+                      </button>
+                      <input
+                        type="text"
+                        placeholder={`Pilihan ${letter}`}
+                        value={choice}
+                        onChange={(event) => updateChoice(index, event.target.value)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {draftError && <p className="settings-error custom-error" role="alert">{draftError}</p>}
+
+          <button type="button" className="custom-add-button" onClick={addCustomQuestion}>
+            <Plus size={15} /> Tambah ke Bank Soal
+          </button>
+        </div>
+
+        {customQuestions.length > 0 && (
+          <div className="custom-list">
+            <h3>Soal buatanmu ({customQuestions.length})</h3>
+            <ul>
+              {customQuestions.map((item) => (
+                <li key={item.id}>
+                  <div>
+                    <span className="custom-meta">
+                      [{QUESTION_TYPE_LABEL[item.type]}] {item.subject}
+                    </span>
+                    <p>{item.text}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="custom-remove"
+                    aria-label={`Hapus soal ${item.text}`}
+                    onClick={() => removeCustomQuestion(item.id)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <div className="settings-actions">
