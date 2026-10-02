@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Crown, Dice5, Sparkles, UserPlus, Volume2, X } from "lucide-react";
 import { DEFAULT_LADDERS, DEFAULT_SNAKES, PLAYER_COLORS, COLOR_LABEL, buildBoard, filterLinks } from "../lib/boardConfig";
 import { QUESTION_BANK } from "../lib/questionBank";
@@ -33,6 +33,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(null);
   const [addError, setAddError] = useState("");
+  const [lastLanding, setLastLanding] = useState(null);
 
   const { cells, cols, rows } = useMemo(() => buildBoard(boardSize), [boardSize]);
   const activeLadders = useMemo(() => filterLinks(DEFAULT_LADDERS, boardSize), [boardSize]);
@@ -52,6 +53,33 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
   const usedColors = new Set(players.map((player) => player.color));
   const availableColors = PLAYER_COLORS.filter((color) => !usedColors.has(color));
   const previewColor = newColor ?? availableColors[0] ?? "coral";
+
+  /**
+   * Akhiri giliran sekarang juga: tutup soal, bersihkan dadu, lalu pindah ke
+   * pemain berikutnya secara berurutan (melingkar).
+   */
+  const advanceTurn = useCallback(() => {
+    setDie(null);
+    setTile(null);
+    setResult(null);
+    setMessage("");
+    setLastLanding(null);
+    setTurn((index) => (index + 1) % players.length);
+  }, [players.length]);
+
+  /**
+   * Rotasi giliran otomatis: sesudah pion selesai melangkah, giliran berpindah
+   * sendiri ke pemain berikutnya. Bila petak yang ditempati punya soal, tunggu
+   * sampai soal dijawab (atau dilewati) dulu baru lanjut.
+   */
+  useEffect(() => {
+    if (winner || gameOver) return;
+    if (rolling || moving || die === null) return;
+    const hasQuestion = lastLanding != null && Boolean(questionMap[lastLanding]);
+    if (hasQuestion && !result) return;
+    const timer = window.setTimeout(advanceTurn, result ? 1700 : 1100);
+    return () => window.clearTimeout(timer);
+  }, [advanceTurn, die, rolling, moving, result, lastLanding, questionMap, winner, gameOver]);
 
   function addScore(playerIndex) {
     setPlayers((list) => list.map((player, index) => (index === playerIndex ? { ...player, score: player.score + SCORE_CORRECT } : player)));
@@ -86,6 +114,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
     setTile(null);
     setResult(null);
     setMessage("");
+    setLastLanding(null);
     const value = Math.ceil(Math.random() * 6);
     window.setTimeout(() => {
       const startPos = players[turn].position;
@@ -106,10 +135,12 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
             if (destination !== landed) {
               window.setTimeout(() => {
                 setPlayers((list) => list.map((player, playerIndex) => (playerIndex === turn ? { ...player, position: destination } : player)));
+                setLastLanding(destination);
                 setMoving(false);
                 if (destination >= boardSize) setGameOver(true);
               }, 380);
             } else {
+              setLastLanding(destination);
               setMoving(false);
               if (destination >= boardSize) setGameOver(true);
             }
@@ -143,14 +174,6 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
     if (isCorrect) addScore(turn);
   }
 
-  function nextTurn() {
-    setDie(null);
-    setTile(null);
-    setResult(null);
-    setMessage("");
-    setTurn((index) => (index + 1) % players.length);
-  }
-
   function restartGame() {
     setPlayers((list) => list.map((player) => ({ ...player, position: 1, score: 0 })));
     setTurn(0);
@@ -158,6 +181,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
     setTile(null);
     setResult(null);
     setMessage("");
+    setLastLanding(null);
     setGameOver(false);
   }
 
@@ -197,7 +221,7 @@ export default function MainBarengKelas({ players, setPlayers, boardSize, tileQu
             </button>;
           })}</div><div className="board-footer"><span>✳ &nbsp;LEMPAR DADU, LANGKAHKAN PIONMU</span><span>{boardSize} PETAK</span></div></div>
         <aside className="sidebar">
-          <section className="dice-panel"><div className="panel-top"><span>LEMPAR DADU</span><b>{die ? `ANGKA ${die}` : "GILIRANMU"}</b></div><div className={`die${rolling ? " rolling" : ""}`} aria-live="polite">{die ?? <Dice5 size={58} />}</div><p className="hint">{rolling ? "Dadu sedang berputar..." : winner ? "Permainan selesai!" : message || `${current?.name}, siap melangkah?`}</p><button className="roll-button" onClick={roll} aria-label={`Lempar dadu untuk ${current?.name ?? "pemain"}`} disabled={rolling || moving || die !== null || Boolean(winner) || gameOver}><Dice5 size={19} /> {rolling ? "MENGOCOK..." : "LEMPAR DADU"} <ChevronRight size={17} /></button>{die !== null && !winner && !moving && !gameOver && <button className="next-turn" onClick={nextTurn}>Selesai giliran <ChevronRight size={15} /></button>}<div className="dice-history"><h3>Riwayat Lemparan</h3>{diceHistory.map((entry, index) => <div className="history-row" key={index}><span className={`avatar ${entry.player === "Alya" ? "coral" : entry.player === "Bima" ? "blue" : "green"}`}>{entry.player[0]}</span><span className="history-value">{entry.value}</span><span className="history-time">{entry.time}</span></div>)}</div></section>
+          <section className="dice-panel"><div className="panel-top"><span>LEMPAR DADU</span><b>{die ? `ANGKA ${die}` : "GILIRANMU"}</b></div><div className={`die${rolling ? " rolling" : ""}`} aria-live="polite">{die ?? <Dice5 size={58} />}</div><p className="hint">{rolling ? "Dadu sedang berputar..." : winner ? "Permainan selesai!" : message || `${current?.name}, siap melangkah?`}</p><button className="roll-button" onClick={roll} aria-label={`Lempar dadu untuk ${current?.name ?? "pemain"}`} disabled={rolling || moving || die !== null || Boolean(winner) || gameOver}><Dice5 size={19} /> {rolling ? "MENGOCOK..." : "LEMPAR DADU"} <ChevronRight size={17} /></button>{die !== null && !winner && !moving && !gameOver && lastLanding != null && Boolean(questionMap[lastLanding]) && !result && <button className="next-turn" onClick={advanceTurn}>Lewati giliran <ChevronRight size={15} /></button>}<div className="dice-history"><h3>Riwayat Lemparan</h3>{diceHistory.map((entry, index) => <div className="history-row" key={index}><span className={`avatar ${entry.player === "Alya" ? "coral" : entry.player === "Bima" ? "blue" : "green"}`}>{entry.player[0]}</span><span className="history-value">{entry.value}</span><span className="history-time">{entry.time}</span></div>)}</div></section>
           <section className="players-panel"><div className="section-heading"><h2>Pemain</h2><span>{players.length} anak</span></div>{players.map((player, index) => <div className={`player-row${index === turn ? " active" : ""}`} key={`${player.name}-${player.color}`}><span className={`avatar ${player.color}`} title={`${player.name} — pion ${COLOR_LABEL[player.color] ?? player.color}`} aria-label={`${player.name}, pion warna ${COLOR_LABEL[player.color] ?? player.color}`}>{player.name[0]}</span><div className="player-meta"><strong>{player.name}{index === turn && <small className="you-tag">JALAN</small>}</strong><span>Kotak {player.position} · pion {COLOR_LABEL[player.color] ?? player.color}</span></div><b className="score"><Sparkles size={12} /> {player.score}</b></div>)}
             {players.length < PLAYER_COLORS.length ? (
               <form className="add-player" onSubmit={addPlayer}>
