@@ -216,7 +216,7 @@ export default function AturPermainan({ onStart, initialBoardSize = 64, initialT
               value={playerCount}
               onChange={(event) => changeCount(Number(event.target.value))}
             >
-              {[2, 3, 4, 5, 6].map((count) => (
+              {Array.from({ length: 19 }, (_, index) => index + 2).map((count) => (
                 <option key={count} value={count}>
                   {count} Pemain
                 </option>
